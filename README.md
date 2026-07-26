@@ -10,22 +10,18 @@ A professional Web3 dApp for distributing XLM tip payments across multiple recip
 
 ---
 
-## 📸 Screenshots
-
-| Connected Dashboard & Live Tip Calculator | Toast Notifications & Session History |
-| :---: | :---: |
-| ![Stellar Tip Splitter Dashboard Placeholder](https://via.placeholder.com/600x350/0a0a0f/7d56c4?text=Stellar+Tip+Splitter+Dashboard) | ![Session History & Toast Result Placeholder](https://via.placeholder.com/600x350/0a0a0f/10b981?text=Toast+Notification+%2B+Session+History) |
-
----
 ## Screenshots
 
 ### Wallet Connected & Balance Displayed
+
 ![Wallet Connected](./screenshots/wallet-connected-balance.png)
 
 ### Successful Testnet Transaction
+
 ![Transaction Success](./screenshots/transaction-success.png)
 
 ### Transaction Result & History
+
 ![Transaction Result](./screenshots/transaction-history-hash.png)
 
 ## 🌟 Key Features
@@ -79,11 +75,13 @@ stellar-white-belt/
 ### Installation & Local Run
 
 1. Clone repository and install dependencies:
+
    ```bash
    npm install
    ```
 
 2. Start the Vite development server:
+
    ```bash
    npm run dev
    ```
