@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Send, Users, Calculator, AlertCircle, Plus, Trash2, ArrowRight } from 'lucide-react';
+import { Send, Users, Calculator, AlertCircle, Plus, Trash2, ArrowRight, RefreshCw } from 'lucide-react';
 import { isValidStellarAddress } from '../services/stellar';
 
 interface SplitFormProps {
@@ -19,13 +19,12 @@ export const SplitForm: React.FC<SplitFormProps> = ({
   const [memo, setMemo] = useState<string>('');
   const [useTextarea, setUseTextarea] = useState<boolean>(true);
   
-  // Textarea mode state (addresses separated by newline)
+  // Textarea list mode
   const [rawAddressesText, setRawAddressesText] = useState<string>('');
 
-  // Row inputs mode state
+  // Input rows mode
   const [addressRows, setAddressRows] = useState<string[]>(['', '']);
 
-  // Extract recipient list based on mode
   const recipientList = useMemo(() => {
     if (useTextarea) {
       return rawAddressesText
@@ -37,7 +36,6 @@ export const SplitForm: React.FC<SplitFormProps> = ({
     }
   }, [useTextarea, rawAddressesText, addressRows]);
 
-  // Valid recipients analysis
   const validRecipients = useMemo(() => {
     return recipientList.filter((addr) => isValidStellarAddress(addr));
   }, [recipientList]);
@@ -46,7 +44,6 @@ export const SplitForm: React.FC<SplitFormProps> = ({
     return recipientList.filter((addr) => !isValidStellarAddress(addr));
   }, [recipientList]);
 
-  // Split calculation per person
   const parsedAmount = parseFloat(totalAmount);
   const isAmountValid = !isNaN(parsedAmount) && parsedAmount > 0;
 
@@ -57,7 +54,6 @@ export const SplitForm: React.FC<SplitFormProps> = ({
     return '0.0000000';
   }, [parsedAmount, isAmountValid, validRecipients]);
 
-  // Form submission handler
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -83,7 +79,6 @@ export const SplitForm: React.FC<SplitFormProps> = ({
     });
   };
 
-  // Row management helper functions
   const handleRowChange = (index: number, value: string) => {
     const updated = [...addressRows];
     updated[index] = value;
@@ -109,28 +104,28 @@ export const SplitForm: React.FC<SplitFormProps> = ({
   };
 
   return (
-    <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 backdrop-blur-md shadow-xl">
+    <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl space-y-5">
       {/* Header */}
-      <div className="flex items-center gap-2.5 mb-6">
-        <div className="p-2.5 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-500/20">
+      <div className="flex items-center gap-2.5">
+        <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400">
           <Users className="w-5 h-5" />
         </div>
         <div>
-          <h2 className="text-lg font-bold text-white">Split Tip Form</h2>
+          <h2 className="text-base font-bold text-slate-100">Split Tip Payment Form</h2>
           <p className="text-xs text-slate-400">Distribute XLM evenly across multiple recipient wallets</p>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Total XLM Amount Input */}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Total XLM Amount */}
         <div>
           <div className="flex justify-between items-center mb-1.5">
-            <label className="text-xs font-bold text-slate-300 tracking-wider">TOTAL XLM AMOUNT TO SPLIT</label>
+            <label className="text-xs font-bold text-slate-300 tracking-wider uppercase">TOTAL XLM AMOUNT</label>
             {isWalletConnected && (
               <button
                 type="button"
                 onClick={handleSetMaxAmount}
-                className="text-[11px] font-bold text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20"
+                className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 cursor-pointer"
               >
                 USE MAX
               </button>
@@ -144,8 +139,8 @@ export const SplitForm: React.FC<SplitFormProps> = ({
               placeholder="e.g. 50.0"
               value={totalAmount}
               onChange={(e) => setTotalAmount(e.target.value)}
-              disabled={isSubmitting}
-              className="w-full bg-slate-950/80 border border-slate-800 focus:border-cyan-500 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-500 text-base font-medium transition-all"
+              disabled={isSubmitting || !isWalletConnected}
+              className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-4 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               required
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
@@ -157,12 +152,12 @@ export const SplitForm: React.FC<SplitFormProps> = ({
         {/* Recipient Addresses Toggle */}
         <div>
           <div className="flex justify-between items-center mb-2">
-            <label className="text-xs font-bold text-slate-300 tracking-wider">RECIPIENT ADDRESSES</label>
+            <label className="text-xs font-bold text-slate-300 tracking-wider uppercase">RECIPIENT ADDRESSES</label>
             <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px] font-semibold">
               <button
                 type="button"
                 onClick={() => setUseTextarea(true)}
-                className={`px-2.5 py-1 rounded-md transition-all ${
+                className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                   useTextarea ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -171,7 +166,7 @@ export const SplitForm: React.FC<SplitFormProps> = ({
               <button
                 type="button"
                 onClick={() => setUseTextarea(false)}
-                className={`px-2.5 py-1 rounded-md transition-all ${
+                className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                   !useTextarea ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -184,41 +179,40 @@ export const SplitForm: React.FC<SplitFormProps> = ({
             <div>
               <textarea
                 rows={4}
-                placeholder="Enter Stellar public addresses (G...), one address per line&#10;GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFXYCZTM6WXIWHCYWCDHY&#10;GDFXK3......"
+                placeholder="Enter Stellar public addresses (G...), one address per line&#10;GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFXYCZTM6WXIWHCYWCDHY"
                 value={rawAddressesText}
                 onChange={(e) => setRawAddressesText(e.target.value)}
-                disabled={isSubmitting}
-                className="w-full bg-slate-950/80 border border-slate-800 focus:border-cyan-500 rounded-xl p-3.5 font-mono text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-500 transition-all leading-relaxed"
+                disabled={isSubmitting || !isWalletConnected}
+                className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl p-3 font-mono text-xs text-slate-200 placeholder-slate-600 focus:outline-none transition-all leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               {addressRows.map((rowVal, idx) => {
                 const isValid = rowVal.length > 0 ? isValidStellarAddress(rowVal) : null;
                 return (
                   <div key={idx} className="flex gap-2 items-center">
-                    <div className="relative flex-1">
-                      <input
-                        type="text"
-                        placeholder={`Recipient #${idx + 1} (G...)`}
-                        value={rowVal}
-                        onChange={(e) => handleRowChange(idx, e.target.value)}
-                        disabled={isSubmitting}
-                        className={`w-full bg-slate-950/80 border ${
-                          isValid === true
-                            ? 'border-emerald-500/50'
-                            : isValid === false
-                            ? 'border-rose-500/50'
-                            : 'border-slate-800'
-                        } focus:border-cyan-500 rounded-xl px-3.5 py-2.5 font-mono text-xs text-slate-200 placeholder-slate-600 focus:outline-none transition-all`}
-                      />
-                    </div>
+                    <input
+                      type="text"
+                      placeholder={`Recipient #${idx + 1} (G...)`}
+                      value={rowVal}
+                      onChange={(e) => handleRowChange(idx, e.target.value)}
+                      disabled={isSubmitting || !isWalletConnected}
+                      className={`flex-1 bg-slate-950 border ${
+                        isValid === true
+                          ? 'border-emerald-500/50'
+                          : isValid === false
+                          ? 'border-rose-500/50'
+                          : 'border-slate-800'
+                      } focus:border-indigo-500 rounded-xl px-3.5 py-2 font-mono text-xs text-slate-200 placeholder-slate-600 focus:outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+                    />
                     {addressRows.length > 1 && (
                       <button
                         type="button"
                         onClick={() => handleRemoveRow(idx)}
-                        className="p-2.5 rounded-xl bg-slate-950 hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 border border-slate-800 hover:border-rose-500/30 transition-all"
-                        title="Remove Recipient"
+                        disabled={isSubmitting || !isWalletConnected}
+                        className="p-2 rounded-xl bg-slate-950 hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 border border-slate-800 transition-all cursor-pointer disabled:opacity-50"
+                        title="Remove Row"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -229,14 +223,15 @@ export const SplitForm: React.FC<SplitFormProps> = ({
               <button
                 type="button"
                 onClick={handleAddRow}
-                className="w-full py-2 rounded-xl bg-slate-950 hover:bg-slate-800/80 border border-dashed border-slate-800 hover:border-cyan-500/50 text-xs font-semibold text-cyan-400 flex items-center justify-center gap-1.5 transition-all"
+                disabled={isSubmitting || !isWalletConnected}
+                className="w-full py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-dashed border-slate-800 hover:border-indigo-500/50 text-xs font-semibold text-indigo-400 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
               >
                 <Plus className="w-4 h-4" /> Add Recipient Row
               </button>
             </div>
           )}
 
-          {/* Address Stats Badge */}
+          {/* Validation Badges */}
           <div className="flex justify-between items-center mt-2 text-xs">
             <span className="text-slate-400">
               Valid Recipients: <strong className="text-emerald-400 font-mono">{validRecipients.length}</strong>
@@ -249,11 +244,11 @@ export const SplitForm: React.FC<SplitFormProps> = ({
           </div>
         </div>
 
-        {/* Live Split Calculation Preview Card */}
-        <div className="p-4 rounded-xl bg-slate-950/90 border border-indigo-500/20">
+        {/* Live Calculation Preview */}
+        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold">
-              <Calculator className="w-4 h-4 text-cyan-400" />
+              <Calculator className="w-4 h-4 text-indigo-400" />
               EQUAL TIP SPLIT PREVIEW
             </div>
             <span className="text-xs font-bold text-indigo-400">
@@ -261,21 +256,21 @@ export const SplitForm: React.FC<SplitFormProps> = ({
             </span>
           </div>
 
-          <div className="mt-3 flex items-baseline justify-between pt-2 border-t border-slate-800/80">
+          <div className="flex items-baseline justify-between pt-2 border-t border-slate-800/80">
             <span className="text-xs text-slate-400">Amount per recipient:</span>
             <div className="text-right">
-              <span className="text-xl font-mono font-extrabold text-cyan-300">
+              <span className="text-xl font-mono font-extrabold text-white">
                 {perPersonAmount}
               </span>
-              <span className="text-xs font-bold text-cyan-400 ml-1">XLM</span>
+              <span className="text-xs font-bold text-indigo-400 ml-1">XLM</span>
             </div>
           </div>
         </div>
 
         {/* Memo Input */}
         <div>
-          <label className="text-xs font-bold text-slate-300 tracking-wider block mb-1.5">
-            TRANSACTION MEMO (OPTIONAL TEXT)
+          <label className="text-xs font-bold text-slate-300 tracking-wider block mb-1.5 uppercase">
+            MEMO (OPTIONAL TEXT)
           </label>
           <input
             type="text"
@@ -283,8 +278,8 @@ export const SplitForm: React.FC<SplitFormProps> = ({
             placeholder="e.g. Dinner Tip Split"
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
-            disabled={isSubmitting}
-            className="w-full bg-slate-950/80 border border-slate-800 focus:border-cyan-500 rounded-xl px-4 py-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none transition-all"
+            disabled={isSubmitting || !isWalletConnected}
+            className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-4 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           />
         </div>
 
@@ -292,17 +287,19 @@ export const SplitForm: React.FC<SplitFormProps> = ({
         <button
           type="submit"
           disabled={!isWalletConnected || isSubmitting || !isAmountValid || validRecipients.length === 0}
-          className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-cyan-500/20 flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-extrabold text-xs md:text-sm shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-2 transition-all disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none disabled:cursor-not-allowed cursor-pointer"
         >
           {isSubmitting ? (
             <>
-              <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin-fast"></div>
-              Awaiting Wallet Signature & Submitting...
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>Submitting Transaction...</span>
             </>
+          ) : !isWalletConnected ? (
+            <span>Connect Wallet to Split Tip</span>
           ) : (
             <>
               <Send className="w-4 h-4" />
-              Split & Send {isAmountValid ? `${totalAmount} XLM` : 'Tip'} via Freighter
+              <span>Split & Send {isAmountValid ? `${totalAmount} XLM` : 'Tip'}</span>
               <ArrowRight className="w-4 h-4" />
             </>
           )}

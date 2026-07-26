@@ -21,97 +21,83 @@ export const TxResult: React.FC<TxResultProps> = ({ result, onDismiss }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-      <div className="w-full max-w-lg p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl relative">
-        {/* Close Button */}
+    <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4 animate-slide-down">
+      <div className={`p-5 rounded-2xl border shadow-2xl backdrop-blur-lg relative ${
+        result.success
+          ? 'bg-slate-900/95 border-emerald-500/40 text-slate-100'
+          : 'bg-slate-900/95 border-rose-500/40 text-slate-100'
+      }`}>
+        {/* Close button */}
         <button
           onClick={onDismiss}
-          className="absolute top-4 right-4 p-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all"
+          className="absolute top-4 right-4 p-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all cursor-pointer"
+          title="Dismiss"
         >
           <X className="w-4 h-4" />
         </button>
 
         {result.success ? (
-          <div className="text-center space-y-4">
-            {/* Success Icon */}
-            <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
-              <CheckCircle2 className="w-10 h-10" />
-            </div>
-
-            <div>
-              <h3 className="text-xl font-extrabold text-white">Tip Split Successfully Broadcasted!</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Distributed tip payment to <strong className="text-emerald-400">{result.recipientsCount}</strong> recipient(s) at{' '}
-                <strong className="text-cyan-300 font-mono">{result.amountPerRecipient} XLM</strong> each on Stellar Testnet.
-              </p>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-white">Transaction Confirmed!</h4>
+                <p className="text-xs text-slate-400">
+                  Tip payment split across <strong className="text-emerald-400">{result.recipientsCount}</strong> recipient(s) at{' '}
+                  <strong className="text-indigo-300 font-mono">{result.amountPerRecipient} XLM</strong> each.
+                </p>
+              </div>
             </div>
 
             {/* Hash Display */}
-            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-left">
-              <span className="text-[11px] font-bold text-slate-400 tracking-wider block mb-1">TRANSACTION HASH</span>
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs text-cyan-300 break-all">
-                  {result.hash}
-                </span>
-                <button
-                  onClick={handleCopyHash}
-                  className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all flex-shrink-0"
-                  title="Copy Hash"
-                >
-                  {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                </button>
+            {result.hash && (
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">TRANSACTION HASH</span>
+                  <span className="font-mono text-xs text-emerald-400 break-all">
+                    {result.hash}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={handleCopyHash}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer"
+                    title="Copy Hash"
+                  >
+                    {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                  <a
+                    href={`https://stellar.expert/explorer/testnet/tx/${result.hash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-all cursor-pointer"
+                    title="View on Stellar Expert Explorer"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </div>
               </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3 pt-2">
-              <a
-                href={`https://stellar.expert/explorer/testnet/tx/${result.hash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 font-bold text-xs shadow-md shadow-cyan-500/20 transition-all"
-              >
-                <ExternalLink className="w-4 h-4" />
-                View on Stellar Expert Explorer
-              </a>
-              <button
-                onClick={onDismiss}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-all"
-              >
-                Done
-              </button>
-            </div>
+            )}
           </div>
         ) : (
-          <div className="text-center space-y-4">
-            {/* Failure Icon */}
-            <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto shadow-lg shadow-rose-500/20">
-              <XCircle className="w-10 h-10" />
-            </div>
-
-            <div>
-              <h3 className="text-xl font-extrabold text-rose-400">Transaction Failed</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                The Stellar Tip Splitter transaction could not be processed on Testnet.
-              </p>
-            </div>
-
-            {/* Error Message Box */}
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-left text-xs text-rose-200">
-              <div className="flex items-center gap-1.5 font-bold text-rose-400 mb-1">
-                <ShieldAlert className="w-4 h-4" /> Error Details
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400">
+                <XCircle className="w-6 h-6" />
               </div>
-              <p className="font-mono text-xs break-words leading-relaxed">
-                {result.error || 'Unknown error occurred.'}
-              </p>
+              <div>
+                <h4 className="text-base font-bold text-rose-400">Transaction Failed</h4>
+                <p className="text-xs text-slate-300">
+                  The tip split transaction could not be completed on Stellar Testnet.
+                </p>
+              </div>
             </div>
 
-            <button
-              onClick={onDismiss}
-              className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition-all"
-            >
-              Close & Retry
-            </button>
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs font-mono text-rose-200 break-words leading-relaxed">
+              {result.error || 'Unknown transaction failure.'}
+            </div>
           </div>
         )}
       </div>
