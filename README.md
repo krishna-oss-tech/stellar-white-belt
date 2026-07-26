@@ -1,3 +1,6 @@
+## 🔗 Live Demo
+
+**[View Live App →](https://stellar-white-belt-ten.vercel.app/)**
 # Stellar Tip Splitter 💸🌟
 
 A professional Web3 dApp for distributing XLM tip payments across multiple recipient addresses in a single atomic Stellar Testnet transaction.
