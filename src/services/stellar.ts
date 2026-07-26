@@ -1,17 +1,19 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
 import {
   isConnected,
+  getAddress,
   requestAccess,
-  getPublicKey,
   signTransaction,
+  getNetwork,
+  getNetworkDetails,
 } from '@stellar/freighter-api';
 
-// Stellar Testnet Configuration
-export const HORIZON_TESTNET_URL = 'https://horizon-testnet.stellar.org';
+// Horizon Server for Stellar Testnet
+export const TESTNET_HORIZON_URL = 'https://horizon-testnet.stellar.org';
 export const TESTNET_PASSPHRASE = StellarSdk.Networks.TESTNET;
 
-// Horizon Server Instance
-export const server = new StellarSdk.Horizon.Server(HORIZON_TESTNET_URL);
+// Stellar Horizon Server Instance
+export const server = new StellarSdk.Horizon.Server(TESTNET_HORIZON_URL);
 
 export interface SplitTipParams {
   senderAddress: string;
@@ -29,8 +31,50 @@ export interface TransactionResult {
   amountPerRecipient?: string;
 }
 
+export interface WalletConnectionResult {
+  address: string;
+  network: string;
+  isTestnet: boolean;
+}
+
 /**
- * Checks if Freighter extension is installed in the browser window
+ * Safely extracts address string from freighter response objects (e.g. { address: "G..." })
+ */
+export function extractAddress(res: any): string | null {
+  if (!res) return null;
+  if (typeof res === 'object') {
+    if (res.error) {
+      throw new Error(typeof res.error === 'string' ? res.error : JSON.stringify(res.error));
+    }
+    if (typeof res.address === 'string' && res.address.trim().length > 0) {
+      return res.address.trim();
+    }
+    if (typeof res.publicKey === 'string' && res.publicKey.trim().length > 0) {
+      return res.publicKey.trim();
+    }
+  }
+  if (typeof res === 'string' && res.trim().length > 0) {
+    return res.trim();
+  }
+  return null;
+}
+
+/**
+ * Validates a Stellar Ed25519 Public Key string
+ */
+export function validateAddress(address: string): boolean {
+  if (!address || typeof address !== 'string') return false;
+  const clean = address.trim();
+  if (clean.length !== 56 || !clean.startsWith('G')) return false;
+  try {
+    return StellarSdk.StrKey.isValidEd25519PublicKey(clean);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks if Freighter extension is installed in the browser
  */
 export async function checkFreighterInstalled(): Promise<boolean> {
   if (typeof window !== 'undefined' && (window as any).freighterApi) {
@@ -45,82 +89,146 @@ export async function checkFreighterInstalled(): Promise<boolean> {
 }
 
 /**
- * Connects Freighter wallet and returns the public key
+ * Checks Freighter's active network and verifies if it is on TESTNET
  */
-export async function connectWallet(): Promise<string> {
-  const installed = await checkFreighterInstalled();
-  if (!installed && typeof window !== 'undefined' && !(window as any).freighterApi) {
-    throw new Error('Freighter wallet extension is not installed. Please install Freighter from https://www.freighter.app/');
-  }
-
-  // Primary attempt: requestAccess()
+export async function checkNetwork(): Promise<{ isTestnet: boolean; networkName: string }> {
   try {
-    const key = await requestAccess();
-    if (key && typeof key === 'string' && key.startsWith('G')) {
-      return key;
+    let networkName = 'TESTNET';
+    
+    if (typeof getNetworkDetails === 'function') {
+      const details: any = await getNetworkDetails();
+      if (details) {
+        if (details.networkPassphrase) {
+          const isTestPass = details.networkPassphrase === TESTNET_PASSPHRASE;
+          return { isTestnet: isTestPass, networkName: details.network || (isTestPass ? 'TESTNET' : 'PUBLIC') };
+        }
+        if (details.network) {
+          networkName = details.network;
+        }
+      }
     }
-  } catch (err: any) {
-    console.warn('requestAccess failed or was cancelled:', err);
-    if (err.message?.includes('User rejected') || err.message?.includes('declined') || err.message?.includes('cancel')) {
-      throw new Error('Wallet connection request was rejected in Freighter wallet.');
-    }
-  }
 
-  // Secondary attempt: getPublicKey()
-  try {
-    const pubKey = await getPublicKey();
-    if (pubKey && typeof pubKey === 'string' && pubKey.startsWith('G')) {
-      return pubKey;
+    if (typeof getNetwork === 'function') {
+      const net: any = await getNetwork();
+      if (net && typeof net === 'string') {
+        networkName = net;
+      }
     }
-  } catch (err: any) {
-    console.warn('getPublicKey failed:', err);
-  }
 
-  throw new Error('Could not connect to Freighter. Please open your browser extension and approve access.');
+    const isTestnet = networkName.toUpperCase().includes('TEST') || networkName.toUpperCase() === 'TESTNET';
+    return { isTestnet, networkName };
+  } catch (err) {
+    console.warn('Could not check Freighter network:', err);
+    return { isTestnet: true, networkName: 'TESTNET' };
+  }
 }
 
 /**
- * Fetches native XLM balance for a given public address from Horizon server
+ * Connects wallet using getAddress() with requestAccess() fallback.
+ * Always extracts .address from object response!
  */
-export async function fetchXLMBalance(address: string): Promise<string> {
-  if (!address) return '0.0000000';
+export async function connectWallet(): Promise<WalletConnectionResult> {
+  const installed = await checkFreighterInstalled();
+  if (!installed && typeof window !== 'undefined' && !(window as any).freighterApi) {
+    throw new Error('Freighter extension not detected. Please install Freighter from https://www.freighter.app/');
+  }
+
+  let addressStr: string | null = null;
+
+  // 1. Attempt getAddress()
+  try {
+    const getAddrRes = await getAddress();
+    addressStr = extractAddress(getAddrRes);
+  } catch (err) {
+    console.warn('getAddress() call failed, falling back to requestAccess():', err);
+  }
+
+  // 2. Fallback to requestAccess()
+  if (!addressStr) {
+    try {
+      const reqRes = await requestAccess();
+      addressStr = extractAddress(reqRes);
+    } catch (err: any) {
+      console.error('requestAccess() error:', err);
+      if (err.message?.includes('User rejected') || err.message?.includes('declined') || err.message?.includes('cancel')) {
+        throw new Error('Connection request was rejected in Freighter wallet.');
+      }
+      throw new Error(err.message || 'Access request failed in Freighter wallet.');
+    }
+  }
+
+  if (!addressStr) {
+    throw new Error('Could not retrieve address from Freighter. Please unlock your extension and try again.');
+  }
+
+  // Validate address format
+  if (!validateAddress(addressStr)) {
+    throw new Error(`Invalid address format received: ${addressStr}. Expected 56-character Ed25519 public key starting with G.`);
+  }
+
+  const networkInfo = await checkNetwork();
+
+  return {
+    address: addressStr,
+    network: networkInfo.networkName,
+    isTestnet: networkInfo.isTestnet,
+  };
+}
+
+/**
+ * Fetches native XLM balance via Horizon server.loadAccount(address)
+ */
+export async function fetchXLMBalance(address: string): Promise<{ balance: string; isUnfunded: boolean }> {
+  if (!address || !validateAddress(address)) {
+    throw new Error(`Invalid address provided for balance query: "${address}".`);
+  }
 
   try {
     const account = await server.loadAccount(address);
-    const nativeBalance = account.balances.find((b) => b.asset_type === 'native');
-    return nativeBalance ? parseFloat(nativeBalance.balance).toFixed(7) : '0.0000000';
+    const nativeBal = account.balances.find((b) => b.asset_type === 'native');
+    const balance = nativeBal ? parseFloat(nativeBal.balance).toFixed(7) : '0.0000000';
+    return { balance, isUnfunded: false };
   } catch (error: any) {
     if (error.response && error.response.status === 404) {
-      throw new Error('Account not funded. Use Friendbot to fund your testnet account: https://friendbot.stellar.org');
+      return { balance: '0.0000000', isUnfunded: true };
     }
-    console.error('Error fetching balance from Horizon:', error);
-    throw new Error(error.message || 'Failed to fetch account balance from Stellar Horizon server.');
+    console.error('Horizon loadAccount error:', error);
+    throw new Error(error.message || 'Failed to fetch account balance from Stellar Horizon.');
   }
 }
 
 /**
- * Validates a Stellar Ed25519 Public Key
+ * Funds address on Testnet via Stellar Friendbot
  */
-export function isValidStellarAddress(address: string): boolean {
-  if (!address || typeof address !== 'string') return false;
+export async function fundWithFriendbot(address: string): Promise<boolean> {
+  if (!address || !validateAddress(address)) {
+    throw new Error('Invalid address provided for Friendbot funding.');
+  }
+
   try {
-    return StellarSdk.StrKey.isValidEd25519PublicKey(address.trim());
-  } catch {
-    return false;
+    const res = await fetch(`https://friendbot.stellar.org?addr=${encodeURIComponent(address)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.title || 'Friendbot funding failed.');
+    }
+    return true;
+  } catch (err: any) {
+    console.error('Friendbot error:', err);
+    throw new Error(err.message || 'Failed to fund account via Friendbot faucet.');
   }
 }
 
 /**
- * Splits total XLM evenly among recipients and submits multi-payment transaction on Stellar Testnet
+ * Builds, signs, and submits a multi-payment tip split transaction on Stellar Testnet
  */
-export async function splitAndSendTips({
+export async function sendTipSplit({
   senderAddress,
   totalAmount,
   recipients,
   memo = '',
 }: SplitTipParams): Promise<TransactionResult> {
-  if (!senderAddress) {
-    throw new Error('Wallet is not connected. Please connect Freighter first.');
+  if (!senderAddress || !validateAddress(senderAddress)) {
+    throw new Error('Wallet not connected or invalid sender address.');
   }
 
   if (totalAmount <= 0) {
@@ -129,13 +237,12 @@ export async function splitAndSendTips({
 
   const validRecipients = recipients
     .map((r) => r.trim())
-    .filter((r) => r.length > 0 && isValidStellarAddress(r));
+    .filter((r) => r.length > 0 && validateAddress(r));
 
   if (validRecipients.length === 0) {
-    throw new Error('Please provide at least one valid recipient Stellar address.');
+    throw new Error('At least one valid recipient Stellar address is required.');
   }
 
-  // Calculate split amount per recipient
   const amountPerRecipientNum = totalAmount / validRecipients.length;
   const amountPerRecipientStr = amountPerRecipientNum.toFixed(7);
 
@@ -146,28 +253,27 @@ export async function splitAndSendTips({
       account = await server.loadAccount(senderAddress);
     } catch (err: any) {
       if (err.response && err.response.status === 404) {
-        throw new Error('Account not funded. Use Friendbot to fund your testnet account: https://friendbot.stellar.org');
+        throw new Error('Account not funded on Testnet yet. Click "Fund with Friendbot" to seed your account.');
       }
       throw err;
     }
 
-    // Check balance
+    // 2. Check balance
     const nativeBalObj = account.balances.find((b) => b.asset_type === 'native');
     const availableBal = nativeBalObj ? parseFloat(nativeBalObj.balance) : 0;
     if (availableBal < totalAmount) {
       throw new Error(`Insufficient XLM balance. Available: ${availableBal.toFixed(4)} XLM, Needed: ${totalAmount} XLM.`);
     }
 
-    // 2. Fetch base fee
+    // 3. Fetch Base Fee
     const fee = await server.fetchBaseFee();
 
-    // 3. Build Transaction
+    // 4. Build Transaction with one Operation.payment per recipient
     let txBuilder = new StellarSdk.TransactionBuilder(account, {
       fee: fee.toString(),
       networkPassphrase: TESTNET_PASSPHRASE,
     });
 
-    // Add one Operation.payment per recipient
     validRecipients.forEach((recipient) => {
       txBuilder.addOperation(
         StellarSdk.Operation.payment({
@@ -186,23 +292,33 @@ export async function splitAndSendTips({
     const transaction = txBuilder.build();
     const xdr = transaction.toXDR();
 
-    // 4. Request Freighter signature
+    // 5. Request Freighter signature
     let signedXdr: string;
     try {
-      signedXdr = await signTransaction(xdr, {
+      const signRes = await signTransaction(xdr, {
         network: 'TESTNET',
         networkPassphrase: TESTNET_PASSPHRASE,
       });
+
+      if (typeof signRes === 'string') {
+        signedXdr = signRes;
+      } else if (signRes && typeof (signRes as any).signedTxXdr === 'string') {
+        signedXdr = (signRes as any).signedTxXdr;
+      } else if (signRes && typeof (signRes as any).xdr === 'string') {
+        signedXdr = (signRes as any).xdr;
+      } else {
+        signedXdr = signRes as any;
+      }
     } catch (signErr: any) {
-      console.error('Freighter sign error:', signErr);
-      throw new Error(signErr.message || 'Transaction signing was rejected in Freighter wallet.');
+      console.error('Sign transaction error:', signErr);
+      throw new Error(signErr.message || 'Transaction signing rejected in Freighter wallet.');
     }
 
-    if (!signedXdr) {
-      throw new Error('Transaction signing was cancelled by user in Freighter.');
+    if (!signedXdr || typeof signedXdr !== 'string') {
+      throw new Error('Transaction signing was cancelled or invalid in Freighter.');
     }
 
-    // 5. Submit signed transaction to Horizon server
+    // 6. Submit signed transaction to Horizon server
     const txToSubmit = StellarSdk.TransactionBuilder.fromXDR(signedXdr, TESTNET_PASSPHRASE);
     const result = await server.submitTransaction(txToSubmit);
 
@@ -214,31 +330,17 @@ export async function splitAndSendTips({
       amountPerRecipient: amountPerRecipientStr,
     };
   } catch (error: any) {
-    console.error('Stellar transaction error:', error);
-    let errorMessage = error.message || 'Transaction submission failed.';
+    console.error('Stellar tip transaction submission error:', error);
+    let errorMsg = error.message || 'Transaction submission failed.';
 
     if (error.response?.data?.extras?.result_codes) {
       const codes = error.response.data.extras.result_codes;
-      errorMessage += ` (Codes: ${JSON.stringify(codes)})`;
+      errorMsg += ` (Codes: ${JSON.stringify(codes)})`;
     }
 
     return {
       success: false,
-      error: errorMessage,
+      error: errorMsg,
     };
   }
-}
-
-/**
- * Funds an account on Testnet using Stellar Friendbot
- */
-export async function fundAccountWithFriendbot(address: string): Promise<any> {
-  if (!address) throw new Error('No address provided.');
-
-  const res = await fetch(`https://friendbot.stellar.org?addr=${encodeURIComponent(address)}`);
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.detail || data.title || 'Friendbot funding request failed.');
-  }
-  return data;
 }

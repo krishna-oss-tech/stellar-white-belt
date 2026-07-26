@@ -1,102 +1,105 @@
-import React, { useState } from 'react';
-import { WalletConnect } from './components/WalletConnect';
-import { BalanceDisplay } from './components/BalanceDisplay';
+import React, { useState, useEffect } from 'react';
+import { NetworkWarning } from './components/NetworkWarning';
+import { WalletCard } from './components/WalletCard';
 import { SplitForm } from './components/SplitForm';
-import { TxResult } from './components/TxResult';
+import { TxHistory, TxHistoryItem } from './components/TxHistory';
+import { Toast, ToastMessage } from './components/Toast';
 import {
   connectWallet,
+  checkNetwork,
   fetchXLMBalance,
-  splitAndSendTips,
-  fundAccountWithFriendbot,
+  fundWithFriendbot,
+  sendTipSplit,
   TransactionResult,
 } from './services/stellar';
-import { Sparkles, History, ExternalLink, ArrowUpRight, CheckCircle2, XCircle, AlertCircle, X } from 'lucide-react';
+import { Wallet, Sparkles, LogOut, RefreshCw, ShieldCheck } from 'lucide-react';
 
 export default function App() {
   const [address, setAddress] = useState<string>('');
   const [balance, setBalance] = useState<string>('0.0000000');
-  
+  const [isUnfunded, setIsUnfunded] = useState<boolean>(false);
+  const [isTestnet, setIsTestnet] = useState<boolean>(true);
+  const [networkName, setNetworkName] = useState<string>('TESTNET');
+
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isFunding, setIsFunding] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [txResult, setTxResult] = useState<TransactionResult | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [historyItems, setHistoryItems] = useState<TxHistoryItem[]>([]);
 
-  const [recentSplits, setRecentSplits] = useState<
-    Array<{
-      hash?: string;
-      totalAmount: number;
-      recipientsCount: number;
-      timestamp: string;
-      success: boolean;
-    }>
-  >([]);
+  // Check network on mount
+  useEffect(() => {
+    async function verifyNetwork() {
+      const netInfo = await checkNetwork();
+      setIsTestnet(netInfo.isTestnet);
+      setNetworkName(netInfo.networkName);
+    }
+    verifyNetwork();
+  }, []);
+
+  const showToast = (type: 'success' | 'error', title: string, message: string) => {
+    setToast({
+      id: Date.now().toString(),
+      type,
+      title,
+      message,
+    });
+  };
 
   /**
-   * Wallet Connect function wrapped in try/catch/finally.
-   * isConnecting is ALWAYS reset to false in the finally block.
+   * Connect Wallet handler using getAddress() & requestAccess()
    */
   const handleConnectWallet = async () => {
     setIsConnecting(true);
-    setErrorMessage(null);
-    setTxResult(null);
+    setToast(null);
 
     try {
-      // 1. Fetch public key from Freighter
-      const key = await connectWallet();
-      if (!key) {
-        throw new Error('Could not retrieve public key from Freighter.');
-      }
-      
-      // Update connected wallet address
-      setAddress(key);
+      const res = await connectWallet();
+      setAddress(res.address);
+      setIsTestnet(res.isTestnet);
+      setNetworkName(res.network);
 
-      // 2. Load XLM balance for connected address
-      try {
-        const bal = await fetchXLMBalance(key);
-        setBalance(bal);
-      } catch (balError: any) {
-        console.warn('Balance fetch error:', balError);
-        setBalance('0.0000000 (Unfunded)');
-        setErrorMessage(balError.message || 'Account not funded. Use Friendbot to fund your testnet account: https://friendbot.stellar.org');
-      }
+      showToast('success', 'Wallet Connected', `Connected to address ${res.address.substring(0, 6)}...${res.address.substring(res.address.length - 6)}`);
+
+      // Load XLM Balance
+      await loadAccountBalance(res.address);
     } catch (error: any) {
       console.error('Wallet connection error:', error);
-      setAddress('');
-      setBalance('0.0000000');
-      setErrorMessage(error.message || 'Failed to connect Freighter wallet.');
+      showToast('error', 'Connection Error', error.message || 'Failed to connect Freighter wallet.');
     } finally {
-      // CRITICAL BUG FIX: Always reset loading state regardless of outcome
       setIsConnecting(false);
     }
   };
 
   /**
-   * Disconnect Wallet and clean state
+   * Disconnect Wallet handler - Resets ALL state cleanly
    */
   const handleDisconnectWallet = () => {
     setAddress('');
     setBalance('0.0000000');
-    setErrorMessage(null);
-    setTxResult(null);
-    setIsConnecting(false);
+    setIsUnfunded(false);
+    setIsTestnet(true);
+    setNetworkName('TESTNET');
+    setToast(null);
+    setHistoryItems([]);
   };
 
   /**
-   * Balance refresh handler
+   * Balance loader handler
    */
   const loadAccountBalance = async (targetAddress: string = address) => {
     if (!targetAddress) return;
     setIsRefreshing(true);
+
     try {
-      const bal = await fetchXLMBalance(targetAddress);
-      setBalance(bal);
-      setErrorMessage(null);
+      const res = await fetchXLMBalance(targetAddress);
+      setBalance(res.balance);
+      setIsUnfunded(res.isUnfunded);
     } catch (error: any) {
-      console.error('Balance refresh error:', error);
-      setErrorMessage(error.message || 'Could not refresh account balance.');
+      console.error('Balance load error:', error);
+      showToast('error', 'Balance Fetch Error', error.message || 'Failed to load account balance.');
     } finally {
       setIsRefreshing(false);
     }
@@ -108,15 +111,30 @@ export default function App() {
   const handleFundFriendbot = async () => {
     if (!address) return;
     setIsFunding(true);
-    setErrorMessage(null);
 
     try {
-      await fundAccountWithFriendbot(address);
+      await fundWithFriendbot(address);
+      showToast('success', 'Friendbot Funding Success', 'Successfully received 10,000 XLM from Testnet Friendbot!');
       await loadAccountBalance(address);
     } catch (error: any) {
-      setErrorMessage(`Friendbot funding error: ${error.message}`);
-    } finally {
+      console.error('Friendbot error:', error);
+      showToast('error', 'Funding Error', error.message || 'Friendbot funding request failed.');
+    } fontally: {
       setIsFunding(false);
+    }
+  };
+
+  /**
+   * Re-check Network
+   */
+  const handleRecheckNetwork = async () => {
+    const netInfo = await checkNetwork();
+    setIsTestnet(netInfo.isTestnet);
+    setNetworkName(netInfo.networkName);
+    if (netInfo.isTestnet) {
+      showToast('success', 'Network Verified', 'Connected to Stellar Testnet.');
+    } else {
+      showToast('error', 'Network Warning', `Active network is ${netInfo.networkName}. Please switch to Testnet.`);
     }
   };
 
@@ -125,38 +143,47 @@ export default function App() {
    */
   const handleSplitSubmit = async (params: { totalAmount: number; recipients: string[]; memo: string }) => {
     setIsSubmitting(true);
-    setTxResult(null);
-    setErrorMessage(null);
 
     try {
-      const res = await splitAndSendTips({
+      const res: TransactionResult = await sendTipSplit({
         senderAddress: address,
         totalAmount: params.totalAmount,
         recipients: params.recipients,
         memo: params.memo,
       });
 
-      setTxResult(res);
+      if (res.success) {
+        showToast(
+          'success',
+          'Tip Payment Confirmed!',
+          `Transaction hash: ${res.hash?.substring(0, 10)}... (Ledger #${res.ledger || 'Latest'})`
+        );
 
-      setRecentSplits((prev) => [
-        {
+        // Record history item
+        const newItem: TxHistoryItem = {
           hash: res.hash,
           totalAmount: params.totalAmount,
           recipientsCount: params.recipients.length,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          success: res.success,
-        },
-        ...prev,
-      ]);
+          success: true,
+        };
+        setHistoryItems((prev) => [newItem, ...prev]);
 
-      if (res.success) {
+        // Auto-refresh balance after successful transfer
         setTimeout(() => loadAccountBalance(address), 2000);
+      } else {
+        showToast('error', 'Transaction Failed', res.error || 'Transaction submission failed.');
+        const failedItem: TxHistoryItem = {
+          totalAmount: params.totalAmount,
+          recipientsCount: params.recipients.length,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          success: false,
+        };
+        setHistoryItems((prev) => [failedItem, ...prev]);
       }
     } catch (error: any) {
-      setTxResult({
-        success: false,
-        error: error.message || 'Transaction submission failed.',
-      });
+      console.error('Submit tip error:', error);
+      showToast('error', 'Transaction Error', error.message || 'Transaction submission failed.');
     } finally {
       setIsSubmitting(false);
     }
@@ -165,58 +192,79 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col justify-between max-w-5xl mx-auto px-4 py-6 space-y-6">
       
-      {/* Top Banner Error Toast */}
-      {errorMessage && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4 animate-slide-down">
-          <div className="p-4 rounded-2xl bg-rose-950/95 border border-rose-500/40 text-rose-100 shadow-2xl backdrop-blur-md flex items-start gap-3 relative">
-            <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
-            <div className="flex-1 text-xs leading-relaxed">
-              <span className="font-bold text-rose-300 block mb-0.5">Notification Notice</span>
-              {errorMessage.includes('https://friendbot.stellar.org') ? (
-                <>
-                  Account not funded on testnet yet. Use Friendbot to fund your account:{' '}
-                  <a
-                    href="https://friendbot.stellar.org"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline text-rose-300 font-mono font-bold hover:text-white"
-                  >
-                    https://friendbot.stellar.org
-                  </a>
-                </>
-              ) : (
-                errorMessage
-              )}
-            </div>
-            <button
-              onClick={() => setErrorMessage(null)}
-              className="p-1 rounded-lg bg-rose-900/50 hover:bg-rose-800 text-rose-300 hover:text-white transition-all cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Toast Notification Top Right */}
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
 
       {/* Top Navbar */}
-      <WalletConnect
-        address={address}
-        isConnecting={isConnecting}
-        onConnect={handleConnectWallet}
-        onDisconnect={handleDisconnectWallet}
-      />
+      <header className="p-4 md:p-6 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-purple-600 text-white shadow-md shadow-purple-600/30">
+            <Wallet className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-extrabold text-white tracking-tight">
+                Stellar <span className="text-purple-400">Tip Splitter</span>
+              </h1>
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                Testnet
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Atomic Multi-Payment Tip Distribution
+            </p>
+          </div>
+        </div>
 
-      {/* Main Dashboard Layout */}
+        <div>
+          {address ? (
+            <button
+              onClick={handleDisconnectWallet}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition-all cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              Disconnect Wallet
+            </button>
+          ) : (
+            <button
+              onClick={handleConnectWallet}
+              disabled={isConnecting}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white font-bold text-xs md:text-sm shadow-lg shadow-purple-600/25 transition-all cursor-pointer disabled:opacity-50"
+            >
+              {isConnecting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Connecting...</span>
+                </>
+              ) : (
+                <>
+                  <Wallet className="w-4 h-4" />
+                  <span>Connect Freighter Wallet</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* Main Content Layout */}
       <main className="space-y-6 flex-1">
         
-        {/* Banner Hero */}
-        <div className="p-6 md:p-8 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        {/* Network Warning Banner */}
+        <NetworkWarning
+          isTestnet={isTestnet}
+          networkName={networkName}
+          onCheckAgain={handleRecheckNetwork}
+        />
+
+        {/* Hero Section */}
+        <div className="p-6 md:p-8 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 mb-2">
-              <Sparkles className="w-3.5 h-3.5" /> STELLAR TIP SPLITTER DAPP
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20 mb-2">
+              <Sparkles className="w-3.5 h-3.5 text-purple-400" /> STELLAR DEVELOPER DAPP
             </span>
-            <h2 className="text-2xl md:text-3xl font-black text-slate-100 tracking-tight">
-              Split Tips & Share XLM <span className="text-indigo-400">Instantly</span>
+            <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight">
+              Split Tips & Share XLM <span className="text-purple-400">Instantly</span>
             </h2>
             <p className="text-xs md:text-sm text-slate-400 mt-1.5 max-w-xl leading-relaxed">
               Connect your Freighter wallet, specify your total XLM tip amount, add recipient addresses, and broadcast equal multi-payment operations in a single atomic Stellar Testnet transaction.
@@ -227,125 +275,68 @@ export default function App() {
             <button
               onClick={handleConnectWallet}
               disabled={isConnecting}
-              className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-extrabold text-xs md:text-sm shadow-lg shadow-indigo-600/25 transition-all disabled:opacity-60 cursor-pointer flex-shrink-0"
+              className="px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white font-extrabold text-xs md:text-sm shadow-lg shadow-purple-600/25 transition-all flex-shrink-0 cursor-pointer disabled:opacity-50"
             >
               {isConnecting ? 'Connecting Freighter...' : 'Connect Wallet to Begin'}
             </button>
           )}
         </div>
 
-        {/* Connected Wallet Dashboard Grid */}
+        {/* Connected Wallet Cards Grid */}
         {address ? (
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-            {/* Card 1: Account Balance */}
-            <div className="md:col-span-5">
-              <BalanceDisplay
-                address={address}
-                balance={balance}
-                isRefreshing={isRefreshing}
-                isFunding={isFunding}
-                onRefresh={() => loadAccountBalance(address)}
-                onFundFriendbot={handleFundFriendbot}
-              />
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+              {/* Card 1: Wallet & Balance */}
+              <div className="md:col-span-5">
+                <WalletCard
+                  address={address}
+                  balance={balance}
+                  isUnfunded={isUnfunded}
+                  isRefreshing={isRefreshing}
+                  isFunding={isFunding}
+                  onRefresh={() => loadAccountBalance(address)}
+                  onFundFriendbot={handleFundFriendbot}
+                />
+              </div>
+
+              {/* Card 2: Split Tip Form */}
+              <div className="md:col-span-7">
+                <SplitForm
+                  isWalletConnected={!!address}
+                  balance={balance}
+                  isSubmitting={isSubmitting}
+                  onSubmit={handleSplitSubmit}
+                />
+              </div>
             </div>
 
-            {/* Card 2: Split Form */}
-            <div className="md:col-span-7">
-              <SplitForm
-                isWalletConnected={!!address}
-                balance={balance}
-                isSubmitting={isSubmitting}
-                onSubmit={handleSplitSubmit}
-              />
-            </div>
-          </div>
+            {/* Card 3: Session Transaction History */}
+            <TxHistory items={historyItems} />
+          </>
         ) : (
-          /* Disconnected Welcome Card */
-          <div className="p-10 md:p-12 rounded-2xl bg-slate-900 border border-slate-800 text-center space-y-4 shadow-xl">
-            <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto shadow-md shadow-indigo-500/10">
-              <Sparkles className="w-7 h-7" />
+          /* Disconnected Welcome View */
+          <div className="p-10 md:p-12 rounded-2xl bg-slate-900/90 border border-slate-800 text-center space-y-4 shadow-xl">
+            <div className="w-14 h-14 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center mx-auto shadow-md shadow-purple-500/10">
+              <ShieldCheck className="w-7 h-7" />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-slate-100">Connect Wallet to Begin</h3>
+              <h3 className="text-xl font-bold text-white">Connect Wallet to Begin</h3>
               <p className="text-xs md:text-sm text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
-                Connect your Freighter browser extension to view your XLM balance, calculate tip splits, and execute multi-payment transactions on Stellar Testnet.
+                Connect your Freighter browser extension to view your XLM balance, calculate equal tip splits, and execute multi-payment transactions on Stellar Testnet.
               </p>
             </div>
             <div className="pt-2 flex justify-center">
               <button
                 onClick={handleConnectWallet}
                 disabled={isConnecting}
-                className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-xs md:text-sm shadow-lg shadow-indigo-600/25 transition-all cursor-pointer disabled:opacity-60"
+                className="px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 active:bg-purple-700 text-white font-bold text-xs md:text-sm shadow-lg shadow-purple-600/25 transition-all cursor-pointer disabled:opacity-50"
               >
                 {isConnecting ? 'Connecting...' : 'Connect Freighter Wallet'}
               </button>
             </div>
           </div>
         )}
-
-        {/* Session Activity Log */}
-        {recentSplits.length > 0 && (
-          <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
-            <div className="flex items-center gap-2">
-              <History className="w-4 h-4 text-indigo-400" />
-              <h3 className="text-sm font-bold text-slate-200">Recent Session Activity</h3>
-            </div>
-
-            <div className="space-y-2">
-              {recentSplits.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className={`p-1.5 rounded-lg ${item.success ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                      <ArrowUpRight className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="font-bold text-slate-200">
-                        -{item.totalAmount} XLM
-                      </span>{' '}
-                      <span className="text-slate-400">
-                        split across {item.recipientsCount} recipient(s) • {item.timestamp}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {item.success ? (
-                      <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 text-[11px] font-bold border border-emerald-500/20 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Confirmed
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-400 text-[11px] font-bold border border-rose-500/20 flex items-center gap-1">
-                        <XCircle className="w-3 h-3" /> Failed
-                      </span>
-                    )}
-
-                    {item.hash && (
-                      <a
-                        href={`https://stellar.expert/explorer/testnet/tx/${item.hash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1.5 rounded-lg bg-slate-800 text-indigo-400 hover:text-white transition-all"
-                        title="View Explorer"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </main>
-
-      {/* Transaction Result Modal / Toast */}
-      <TxResult
-        result={txResult}
-        onDismiss={() => setTxResult(null)}
-      />
 
       {/* Footer */}
       <footer className="pt-6 border-t border-slate-800/60 text-center text-xs text-slate-500">
